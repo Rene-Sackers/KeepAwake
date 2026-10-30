@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#000000">
 <title>Keep Awake</title>
 <style>
@@ -25,9 +25,10 @@
   button:active { opacity: .7; }
   p.hint { font-size: 13px; color: #999; max-width: 320px; margin: 0; line-height: 1.4; }
   #black { position: fixed; inset: 0; background: #000; display: none; z-index: 9999;
-    width: 100vw; height: 100dvh; cursor: none; }
+    width: 100%; height: 100%; cursor: none; }
   body.black #black { display: block; }
   body.black main { visibility: hidden; }
+  html:has(body.black) { background: #000; }
   #keepVideo { position: fixed; width: 1px; height: 1px; opacity: 0.01; pointer-events: none; }
 </style>
 </head>
