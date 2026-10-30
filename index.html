@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#000000">
+<title>Keep Awake</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #111; color: #eee;
+    font-family: -apple-system, system-ui, sans-serif; }
+  main { min-height: 100%; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; gap: 20px; padding: 24px; text-align: center; }
+  h1 { margin: 0; font-size: 24px; }
+  #status { padding: 10px 16px; border-radius: 999px; background: #333; font-size: 15px; }
+  #status.on { background: #14532d; color: #bbf7d0; }
+  #status.off { background: #7f1d1d; color: #fecaca; }
+  button { font: inherit; font-size: 18px; padding: 16px 28px; border-radius: 14px; border: 0;
+    background: #2563eb; color: #fff; width: 100%; max-width: 320px; }
+  button.secondary { background: #333; }
+  button:active { opacity: .7; }
+  p.hint { font-size: 13px; color: #999; max-width: 320px; margin: 0; line-height: 1.4; }
+  #black { position: fixed; inset: 0; background: #000; display: none; z-index: 9999;
+    width: 100vw; height: 100dvh; cursor: none; }
+  body.black #black { display: block; }
+  body.black main { visibility: hidden; }
+  #keepVideo { position: fixed; width: 1px; height: 1px; opacity: 0.01; pointer-events: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Keep Awake</h1>
+  <div id="status">Starting…</div>
+  <button id="toggle" class="secondary">Turn off</button>
+  <button id="blackBtn">Black fullscreen</button>
+  <p class="hint">Tap the black screen to exit. For a true fullscreen without Safari's bars on iPhone,
+    use Share → Add to Home Screen and open it from there.</p>
+</main>
+<div id="black"></div>
+<video id="keepVideo" muted playsinline loop></video>
+
+<script>
+(() => {
+  const statusEl = document.getElementById('status');
+  const toggleBtn = document.getElementById('toggle');
+  const blackBtn = document.getElementById('blackBtn');
+  const blackEl = document.getElementById('black');
+  const video = document.getElementById('keepVideo');
+
+  let enabled = true;
+  let wakeLock = null;
+  let fallbackActive = false;
+
+  function setStatus(text, cls) {
+    statusEl.textContent = text;
+    statusEl.className = cls || '';
+  }
+
+  // Fallback: playing a live video stream keeps iOS awake on versions without Wake Lock.
+  function startFallback() {
+    try {
+      if (!video.srcObject) {
+        const c = document.createElement('canvas');
+        c.width = c.height = 16;
+        const ctx = c.getContext('2d');
+        let n = 0;
+        setInterval(() => { ctx.fillStyle = (n++ % 2) ? '#000' : '#010101'; ctx.fillRect(0, 0, 16, 16); }, 1000);
+        ctx.fillRect(0, 0, 16, 16);
+        video.srcObject = c.captureStream(5);
+      }
+      const p = video.play();
+      if (p && p.catch) p.catch(() => {});
+      fallbackActive = true;
+    } catch (e) { fallbackActive = false; }
+  }
+
+  function stopFallback() {
+    try { video.pause(); } catch (e) {}
+    fallbackActive = false;
+  }
+
+  async function acquire() {
+    if (!enabled) return;
+    let ok = false;
+    if ('wakeLock' in navigator) {
+      try {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; refresh(); });
+        ok = true;
+      } catch (e) { /* needs user gesture or page visible */ }
+    }
+    // Run the video fallback alongside as a safety net.
+    startFallback();
+    refresh(ok);
+  }
+
+  async function release() {
+    enabled = false;
+    try { if (wakeLock) await wakeLock.release(); } catch (e) {}
+    wakeLock = null;
+    stopFallback();
+    refresh();
+  }
+
+  function refresh() {
+    if (!enabled) {
+      setStatus('Screen may sleep', 'off');
+      toggleBtn.textContent = 'Turn on';
+    } else if (wakeLock || fallbackActive) {
+      setStatus('Screen will stay awake', 'on');
+      toggleBtn.textContent = 'Turn off';
+    } else {
+      setStatus('Tap anywhere to activate', '');
+      toggleBtn.textContent = 'Turn off';
+    }
+  }
+
+  toggleBtn.addEventListener('click', () => {
+    if (enabled) release(); else { enabled = true; acquire(); }
+  });
+
+  // Browsers require a user gesture on some versions; retry on first touch.
+  const retry = () => { if (enabled && !wakeLock) acquire(); };
+  document.addEventListener('touchend', retry, { passive: true });
+  document.addEventListener('click', retry);
+
+  // The lock is dropped when the page is hidden; re-acquire on return.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && enabled) acquire();
+  });
+
+  // ---- Black fullscreen ----
+  function enterBlack() {
+    document.body.classList.add('black');
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) { try { const r = req.call(el); if (r && r.catch) r.catch(() => {}); } catch (e) {} }
+    if (enabled) acquire();
+  }
+
+  function exitBlack() {
+    document.body.classList.remove('black');
+    const fs = document.fullscreenElement || document.webkitFullscreenElement;
+    if (fs) {
+      const ex = document.exitFullscreen || document.webkitExitFullscreen;
+      try { const r = ex.call(document); if (r && r.catch) r.catch(() => {}); } catch (e) {}
+    }
+  }
+
+  blackBtn.addEventListener('click', enterBlack);
+  blackEl.addEventListener('click', exitBlack);
+  const onFsChange = () => {
+    if (!(document.fullscreenElement || document.webkitFullscreenElement)) {
+      document.body.classList.remove('black');
+    }
+    if (enabled) acquire();
+  };
+  document.addEventListener('fullscreenchange', onFsChange);
+  document.addEventListener('webkitfullscreenchange', onFsChange);
+
+  acquire();
+})();
+</script>
+</body>
+</html>
